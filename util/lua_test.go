@@ -5,8 +5,8 @@ import (
 	"fmt"
 	. "testing"
 
-	"github.com/mediocregopher/radix.v2/cluster"
-	"github.com/mediocregopher/radix.v2/redis"
+	"github.com/kevwan/radix.v2/cluster"
+	"github.com/kevwan/radix.v2/redis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

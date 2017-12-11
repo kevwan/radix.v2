@@ -3,9 +3,9 @@
 package util
 
 import (
-	"github.com/mediocregopher/radix.v2/cluster"
-	"github.com/mediocregopher/radix.v2/pool"
-	"github.com/mediocregopher/radix.v2/redis"
+	"github.com/kevwan/radix.v2/cluster"
+	"github.com/kevwan/radix.v2/pool"
+	"github.com/kevwan/radix.v2/redis"
 )
 
 // Cmder is an interface which can be used to interchangeably work with either

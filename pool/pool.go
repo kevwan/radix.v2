@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mediocregopher/radix.v2/redis"
+	"github.com/kevwan/radix.v2/redis"
 )
 
 // Pool is a simple connection pool for redis Clients. It will create a small
