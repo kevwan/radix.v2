@@ -7,6 +7,9 @@ import (
 	"github.com/kevwan/radix.v2/redis"
 )
 
+// idle time before the connections not in pool to close
+const waitForReuse = time.Minute
+
 // Pool is a simple connection pool for redis Clients. It will create a small
 // pool of initial connections, and if more connections are needed they will be
 // created on demand. If a connection is Put back and the pool is full it will
@@ -117,7 +120,17 @@ func (p *Pool) Put(conn *redis.Client) {
 		select {
 		case p.pool <- conn:
 		default:
-			conn.Close()
+			go func() {
+				timer := time.NewTimer(waitForReuse)
+				defer timer.Stop()
+
+				select {
+				case p.pool<-conn:
+				case <-timer.C:
+					conn.Close()
+					return
+				}
+			}()
 		}
 	}
 }
