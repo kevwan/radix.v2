@@ -1,7 +1,9 @@
 package pool
 
 import (
+	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kevwan/radix.v2/redis"
@@ -10,14 +12,24 @@ import (
 // idle time before the connections not in pool to close
 const waitForReuse = time.Minute
 
+var (
+	ErrIllegalArgument = errors.New("redis pool: bad arguments")
+	ErrPoolExhausted   = errors.New("redis: connection pool exhausted")
+)
+
 // Pool is a simple connection pool for redis Clients. It will create a small
 // pool of initial connections, and if more connections are needed they will be
 // created on demand. If a connection is Put back and the pool is full it will
 // be closed.
 type Pool struct {
-	pool chan *redis.Client
-	df   DialFunc
+	pool            chan *redis.Client
+	secondaryPool   chan *redis.Client
+	secondaryActive time.Time
+	lock            sync.Mutex
+	df              DialFunc
 
+	active     int32
+	maxActive  int32
 	initDoneCh chan bool // used for tests
 	stopOnce   sync.Once
 	stopCh     chan bool
@@ -34,14 +46,23 @@ type DialFunc func(network, addr string) (*redis.Client, error)
 // NewCustom is like New except you can specify a DialFunc which will be
 // used when creating new connections for the pool. The common use-case is to do
 // authentication for new connections.
-func NewCustom(network, addr string, size int, df DialFunc) (*Pool, error) {
+func NewCustom(network, addr string, size, maxActive int, df DialFunc) (*Pool, error) {
+	if maxActive < size {
+		return nil, ErrIllegalArgument
+	}
+
+	if maxActive <= 0 {
+		maxActive = 100
+	}
 	p := Pool{
-		Network:    network,
-		Addr:       addr,
-		pool:       make(chan *redis.Client, size),
-		df:         df,
-		initDoneCh: make(chan bool),
-		stopCh:     make(chan bool),
+		Network:       network,
+		Addr:          addr,
+		pool:          make(chan *redis.Client, size),
+		secondaryPool: make(chan *redis.Client, maxActive-size),
+		df:            df,
+		maxActive:     int32(maxActive),
+		initDoneCh:    make(chan bool),
+		stopCh:        make(chan bool),
 	}
 
 	// set up a go-routine which will periodically ping connections in the pool.
@@ -73,6 +94,7 @@ func NewCustom(network, addr string, size int, df DialFunc) (*Pool, error) {
 		client, err := df(network, addr)
 		if err == nil {
 			p.pool <- client
+			atomic.AddInt32(&p.active, 1)
 		}
 		return err
 	}
@@ -97,8 +119,8 @@ func NewCustom(network, addr string, size int, df DialFunc) (*Pool, error) {
 // redis.Dial(network, addr). The size indicates the maximum number of idle
 // connections to have waiting to be used at any given moment. If an error is
 // encountered an empty (but still usable) pool is returned alongside that error
-func New(network, addr string, size int) (*Pool, error) {
-	return NewCustom(network, addr, size, redis.Dial)
+func New(network, addr string, size, maxActive int) (*Pool, error) {
+	return NewCustom(network, addr, size, maxActive, redis.Dial)
 }
 
 // Get retrieves an available redis client. If there are none available it will
@@ -108,7 +130,30 @@ func (p *Pool) Get() (*redis.Client, error) {
 	case conn := <-p.pool:
 		return conn, nil
 	default:
-		return p.df(p.Network, p.Addr)
+		select {
+		case conn := <-p.secondaryPool:
+			p.lock.Lock()
+			p.secondaryActive = time.Now()
+			p.lock.Unlock()
+			return conn, nil
+		default:
+			for {
+				active := atomic.LoadInt32(&p.active)
+				if active < p.maxActive {
+					if atomic.CompareAndSwapInt32(&p.active, active, active+1) {
+						conn, err := p.df(p.Network, p.Addr)
+						if err != nil {
+							atomic.AddInt32(&p.active, -1)
+							return nil, err
+						}
+
+						return conn, nil
+					}
+				} else {
+					return nil, ErrPoolExhausted
+				}
+			}
+		}
 	}
 }
 
@@ -119,19 +164,29 @@ func (p *Pool) Put(conn *redis.Client) {
 	if conn.LastCritical == nil {
 		select {
 		case p.pool <- conn:
-		default:
-			go func() {
-				timer := time.NewTimer(waitForReuse)
-				defer timer.Stop()
-
+			p.lock.Lock()
+			if p.secondaryActive.Add(waitForReuse).Before(time.Now()) {
 				select {
-				case p.pool<-conn:
-				case <-timer.C:
+				case conn := <-p.secondaryPool:
+					atomic.AddInt32(&p.active, -1)
 					conn.Close()
-					return
+				default:
+					// no connections in secondaryPool
+					// we update the active timestamp to reduce the chan read
+					p.secondaryActive = time.Now()
 				}
-			}()
+			}
+			p.lock.Unlock()
+		default:
+			select {
+			case p.secondaryPool <- conn:
+			default:
+				atomic.AddInt32(&p.active, -1)
+				conn.Close()
+			}
 		}
+	} else {
+		atomic.AddInt32(&p.active, -1)
 	}
 }
 

@@ -79,6 +79,9 @@ type Opts struct {
 	// The size of the connection pool to use for each host. Default is 10
 	PoolSize int
 
+	// The maximum active concurrent connections in pool
+	MaxActive int
+
 	// The time which must elapse between subsequent calls to create a new
 	// connection pool (on a per redis instance basis) in certain circumstances.
 	// The default is 500 milliseconds
@@ -118,6 +121,9 @@ func New(addr string) (*Cluster, error) {
 func NewWithOpts(o Opts) (*Cluster, error) {
 	if o.PoolSize == 0 {
 		o.PoolSize = 10
+	}
+	if o.MaxActive == 0 {
+		o.MaxActive = 100
 	}
 	if o.PoolThrottle == 0 {
 		o.PoolThrottle = 500 * time.Millisecond
@@ -170,7 +176,7 @@ func (c *Cluster) newPool(addr string, clearThrottle bool) (clusterPool, error) 
 	df := func(network, addr string) (*redis.Client, error) {
 		return c.o.Dialer(network, addr)
 	}
-	p, err := pool.NewCustom("tcp", addr, c.o.PoolSize, df)
+	p, err := pool.NewCustom("tcp", addr, c.o.PoolSize, c.o.MaxActive, df)
 	if err != nil {
 		c.poolThrottles[addr] = time.After(c.o.PoolThrottle)
 		return clusterPool{}, err

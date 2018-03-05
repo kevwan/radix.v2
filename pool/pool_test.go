@@ -10,7 +10,7 @@ import (
 
 func TestPool(t *T) {
 	size := 10
-	pool, err := New("tcp", "localhost:6379", size)
+	pool, err := New("tcp", "localhost:6379", size, 100)
 	require.Nil(t, err)
 	<-pool.initDoneCh
 
@@ -39,7 +39,7 @@ func TestPool(t *T) {
 
 func TestCmd(t *T) {
 	size := 10
-	pool, err := New("tcp", "localhost:6379", 10)
+	pool, err := New("tcp", "localhost:6379", 10, 100)
 	require.Nil(t, err)
 
 	var wg sync.WaitGroup
@@ -57,7 +57,7 @@ func TestCmd(t *T) {
 }
 
 func TestPut(t *T) {
-	pool, err := New("tcp", "localhost:6379", 10)
+	pool, err := New("tcp", "localhost:6379", 10, 100)
 	require.Nil(t, err)
 	<-pool.initDoneCh
 
