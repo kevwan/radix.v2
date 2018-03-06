@@ -24,8 +24,7 @@ var (
 type Pool struct {
 	pool            chan *redis.Client
 	secondaryPool   chan *redis.Client
-	secondaryActive time.Time
-	lock            sync.Mutex
+	secondaryActive atomic.Value
 	df              DialFunc
 
 	active     int32
@@ -64,6 +63,7 @@ func NewCustom(network, addr string, size, maxActive int, df DialFunc) (*Pool, e
 		initDoneCh:    make(chan bool),
 		stopCh:        make(chan bool),
 	}
+	p.secondaryActive.Store(time.Now())
 
 	// set up a go-routine which will periodically ping connections in the pool.
 	// if the pool is idle every connection will be hit once every 10 seconds.
@@ -132,9 +132,7 @@ func (p *Pool) Get() (*redis.Client, error) {
 	default:
 		select {
 		case conn := <-p.secondaryPool:
-			p.lock.Lock()
-			p.secondaryActive = time.Now()
-			p.lock.Unlock()
+			p.secondaryActive.Store(time.Now())
 			return conn, nil
 		default:
 			for {
@@ -164,8 +162,7 @@ func (p *Pool) Put(conn *redis.Client) {
 	if conn.LastCritical == nil {
 		select {
 		case p.pool <- conn:
-			p.lock.Lock()
-			if p.secondaryActive.Add(waitForReuse).Before(time.Now()) {
+			if p.secondaryActive.Load().(time.Time).Add(waitForReuse).Before(time.Now()) {
 				select {
 				case conn := <-p.secondaryPool:
 					atomic.AddInt32(&p.active, -1)
@@ -173,10 +170,9 @@ func (p *Pool) Put(conn *redis.Client) {
 				default:
 					// no connections in secondaryPool
 					// we update the active timestamp to reduce the chan read
-					p.secondaryActive = time.Now()
+					p.secondaryActive.Store(time.Now())
 				}
 			}
-			p.lock.Unlock()
 		default:
 			select {
 			case p.secondaryPool <- conn:
