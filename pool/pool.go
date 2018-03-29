@@ -9,8 +9,11 @@ import (
 	"github.com/kevwan/radix.v2/redis"
 )
 
-// idle time before the connections not in pool to close
-const waitForReuse = time.Minute
+const (
+	// idle time before the connections not in pool to close
+	waitForReuse     = time.Minute
+	defaultMaxActive = 100
+)
 
 var (
 	ErrIllegalArgument = errors.New("redis pool: bad arguments")
@@ -51,7 +54,7 @@ func NewCustom(network, addr string, size, maxActive int, df DialFunc) (*Pool, e
 	}
 
 	if maxActive <= 0 {
-		maxActive = 100
+		maxActive = defaultMaxActive
 	}
 	p := Pool{
 		Network:       network,

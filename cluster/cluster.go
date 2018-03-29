@@ -23,6 +23,11 @@ import (
 	"github.com/kevwan/radix.v2/redis"
 )
 
+const (
+	defaultPoolSize  = 5
+	defaultMaxActive = 50
+)
+
 type mapping [NumSlots]string
 
 func errorResp(err error) *redis.Resp {
@@ -76,7 +81,7 @@ type Opts struct {
 	// default. This will be ignored if the Dialer field is set.
 	Timeout time.Duration
 
-	// The size of the connection pool to use for each host. Default is 10
+	// The size of the connection pool to use for each host
 	PoolSize int
 
 	// The maximum active concurrent connections in pool
@@ -120,10 +125,10 @@ func New(addr string) (*Cluster, error) {
 // configuration options. See Opts for more available options
 func NewWithOpts(o Opts) (*Cluster, error) {
 	if o.PoolSize == 0 {
-		o.PoolSize = 10
+		o.PoolSize = defaultPoolSize
 	}
 	if o.MaxActive == 0 {
-		o.MaxActive = 100
+		o.MaxActive = defaultMaxActive
 	}
 	if o.PoolThrottle == 0 {
 		o.PoolThrottle = 500 * time.Millisecond
