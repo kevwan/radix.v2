@@ -75,7 +75,7 @@ func NewCustom(network, addr string, size, maxActive int, df DialFunc) (*Pool, e
 	startTickCh := make(chan struct{})
 	defer close(startTickCh)
 	go func() {
-		tick := time.NewTicker(10 * time.Second / time.Duration(size))
+		tick := time.NewTicker(5 * time.Minute / time.Duration(size))
 		defer tick.Stop()
 		<-startTickCh
 		for {
